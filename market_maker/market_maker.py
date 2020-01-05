@@ -273,8 +273,9 @@ class OrderManager:
         # Midpoint, used for simpler order placement.
         self.start_position_mid = ticker["mid"]
         logger.info(
-            "%s Ticker: Buy: %.*f, Sell: %.*f" %
-            (self.instrument['symbol'], tickLog, ticker["buy"], tickLog, ticker["sell"])
+            "%s Ticker: Buy: %.*f, Sell: %.*f, tickSize: %.*f" %
+            (self.instrument['symbol'], tickLog, ticker["buy"], tickLog, ticker["sell"],
+             tickLog, self.instrument['tickSize'])
         )
         logger.info('Start Positions: Buy: %.*f, Sell: %.*f, Mid: %.*f' %
                     (tickLog, self.start_position_buy, tickLog, self.start_position_sell,
