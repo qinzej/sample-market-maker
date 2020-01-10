@@ -73,7 +73,56 @@ class CustomOrderManager(OrderManager):
             if index < 0 and start_position > self.start_position_sell:
                 start_position = self.start_position_buy
 
-        return math.toNearest((start_position + tickSize * index), self.instrument['tickSize'])
+        return math.toNearest((start_position + 4 * tickSize * index), self.instrument['tickSize'])
+
+    def converge_orders(self, buy_orders, sell_orders):
+        """Converge the orders we currently have in the book with what we want to be in the book.
+           This involves amending any open orders and creating new ones if any have filled completely.
+           We start from the closest orders outward."""
+
+        tickLog = self.exchange.get_instrument()['tickLog']
+        to_amend = []
+        to_create = []
+        to_cancel = []
+        buys_matched = 0
+        sells_matched = 0
+        existing_orders = self.exchange.get_orders()
+
+        for order in existing_orders:
+            logger.info("%4s %d @ %.*f" % (order['side'], order['orderQty'], tickLog, order['price']))
+            try:
+                if order['side'] == 'Buy':
+                    buys_matched += 1
+                else:
+                    sells_matched += 1
+
+            except IndexError:
+                # Will throw if there isn't a desired order to match. In that case, cancel it.
+                to_cancel.append(order)
+
+        logger.info("existing_orders len %d " % (len(existing_orders)))
+        new_order_index = min((settings.ORDER_PAIRS-buys_matched), (settings.ORDER_PAIRS-sells_matched))
+
+        while new_order_index > 0:
+            index = settings.ORDER_PAIRS - new_order_index
+            logger.info("order index %d " % index)
+            to_create.append(buy_orders[index])
+            to_create.append(sell_orders[index])
+            new_order_index -= 1
+        # if buys_matched == sells_matched:
+        #     while buys_matched < len(buy_orders):
+        #         to_create.append(buy_orders[buys_matched])
+        #         buys_matched += 1
+        #
+        #     while sells_matched < len(sell_orders):
+        #         to_create.append(sell_orders[sells_matched])
+        #         sells_matched += 1
+
+        if len(to_create) > 0:
+            logger.info("Creating %d orders:" % (len(to_create)))
+            for order in reversed(to_create):
+                logger.info("%4s %d @ %.*f" % (order['side'], order['orderQty'], tickLog, order['price']))
+            self.exchange.create_bulk_orders(to_create)
 
 
 def run():
