@@ -73,7 +73,7 @@ class CustomOrderManager(OrderManager):
             if index < 0 and start_position > self.start_position_sell:
                 start_position = self.start_position_buy
 
-        return math.toNearest((start_position + 4 * tickSize * index), self.instrument['tickSize'])
+        return math.toNearest((start_position + settings.INTERVAL_NUM * tickSize * index), self.instrument['tickSize'])
 
     def converge_orders(self, buy_orders, sell_orders):
         """Converge the orders we currently have in the book with what we want to be in the book.
@@ -109,14 +109,6 @@ class CustomOrderManager(OrderManager):
             to_create.append(buy_orders[index])
             to_create.append(sell_orders[index])
             new_order_index -= 1
-        # if buys_matched == sells_matched:
-        #     while buys_matched < len(buy_orders):
-        #         to_create.append(buy_orders[buys_matched])
-        #         buys_matched += 1
-        #
-        #     while sells_matched < len(sell_orders):
-        #         to_create.append(sell_orders[sells_matched])
-        #         sells_matched += 1
 
         if len(to_create) > 0:
             logger.info("Creating %d orders:" % (len(to_create)))
