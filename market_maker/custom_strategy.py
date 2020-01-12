@@ -4,6 +4,8 @@ from market_maker.market_maker import OrderManager
 
 from market_maker.utils import log, constants, errors, math
 from market_maker.settings import settings
+import requests
+from time import sleep
 
 
 #
@@ -13,6 +15,25 @@ logger = log.setup_custom_logger('xxx')
 
 
 class CustomOrderManager(OrderManager):
+    def reset(self):
+        # self.exchange.cancel_all_orders()
+        self.sanity_check()
+        self.print_status()
+
+        # Create orders and converge.
+        self.place_orders()
+
+    def exit(self):
+        try:
+            # self.exchange.cancel_all_orders()
+            self.exchange.bitmex.exit()
+        except errors.AuthenticationError as e:
+            logger.info("Was not authenticated; could not cancel orders.")
+        except Exception as e:
+            logger.info("Unable to cancel orders: %s" % e)
+
+        sys.exit()
+
     """A sample order manager for implementing your own custom strategy"""
     def get_ticker(self):
         ticker = self.exchange.get_ticker()
@@ -92,10 +113,19 @@ class CustomOrderManager(OrderManager):
             logger.info("%4s %d @ %.*f" % (order['side'], order['orderQty'], tickLog, order['price']))
             try:
                 if order['side'] == 'Buy':
+                    desired_order = buy_orders[buys_matched]
                     buys_matched += 1
                 else:
+                    desired_order = sell_orders[sells_matched]
                     sells_matched += 1
 
+                # Found an existing order. Do we need to amend it?
+                if (
+                        # If price has changed, and the change is more than our RELIST_INTERVAL, amend.
+                        desired_order['price'] != order['price'] and
+                        abs((desired_order['price'] / order['price']) - 1) > settings.RELIST_INTERVAL):
+                    to_amend.append({'orderID': order['orderID'], 'orderQty': order['cumQty'] + desired_order['orderQty'],
+                                     'price': desired_order['price'], 'side': order['side'], 'ordTypes': 'Market'})
             except IndexError:
                 # Will throw if there isn't a desired order to match. In that case, cancel it.
                 to_cancel.append(order)
@@ -109,6 +139,31 @@ class CustomOrderManager(OrderManager):
             to_create.append(buy_orders[index])
             to_create.append(sell_orders[index])
             new_order_index -= 1
+
+        if len(to_amend) > 0:
+            for amended_order in reversed(to_amend):
+                reference_order = [o for o in existing_orders if o['orderID'] == amended_order['orderID']][0]
+                logger.info("Amending %4s: %d @ %.*f to %d @ %.*f (%+.*f)" % (
+                    amended_order['side'],
+                    reference_order['leavesQty'], tickLog, reference_order['price'],
+                    (amended_order['orderQty'] - reference_order['cumQty']), tickLog, amended_order['price'],
+                    tickLog, (amended_order['price'] - reference_order['price'])
+                ))
+            # This can fail if an order has closed in the time we were processing.
+            # The API will send us `invalid ordStatus`, which means that the order's status (Filled/Canceled)
+            # made it not amendable.
+            # If that happens, we need to catch it and re-tick.
+            try:
+                self.exchange.amend_bulk_orders(to_amend)
+            except requests.exceptions.HTTPError as e:
+                errorObj = e.response.json()
+                if errorObj['error']['message'] == 'Invalid ordStatus':
+                    logger.warn("Amending failed. Waiting for order data to converge and retrying.")
+                    sleep(0.5)
+                    return self.place_orders()
+                else:
+                    logger.error("Unknown error on amend: %s. Exiting" % errorObj)
+                    sys.exit(1)
 
         if len(to_create) > 0:
             logger.info("Creating %d orders:" % (len(to_create)))
